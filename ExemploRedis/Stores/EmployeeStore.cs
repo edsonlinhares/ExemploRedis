@@ -23,33 +23,50 @@ namespace ExemploRedis.Stores
 
         public Task Adicionar(Employee obj)
         {
-            var _obj = _employees.FirstOrDefault(x => x.Id == obj.Id);
-            if (_obj is null)
+            var ts = new Task(() =>
             {
-                _employees.Add(obj);
-            }
+                var _obj = _employees.FirstOrDefault(x => x.Id == obj.Id);
+                if (_obj is null)
+                {
+                    _employees.Add(obj);
+                }
+            });
+
+            ts.Start();
 
             return Task.CompletedTask;
         }
 
         public Task Atualizar(Employee obj)
         {
-            var _obj = _employees.FirstOrDefault(x => x.Id == obj.Id);
-            if (_obj != null)
+            var ts = new Task(() =>
             {
-                _employees.Remove(_obj);
-                _employees.Add(obj);
-            }
+                var _obj = _employees.FirstOrDefault(x => x.Id == obj.Id);
+                if (_obj != null)
+                {
+                    _employees.Remove(_obj);
+                    _employees.Add(obj);
+                }
+            });
+
+            ts.Start();
+
             return Task.CompletedTask;
         }
 
         public Task Remover(Employee obj)
         {
-            var _obj = _employees.FirstOrDefault(x => x.Id == obj.Id);
-            if (_obj != null)
+            var ts = new Task(() =>
             {
-                _employees.Remove(_obj);
-            }
+                var _obj = _employees.FirstOrDefault(x => x.Id == obj.Id);
+                if (_obj != null)
+                {
+                    _employees.Remove(_obj);
+                }
+            });
+
+            ts.Start();
+            
             return Task.CompletedTask;
         }
 
@@ -58,9 +75,10 @@ namespace ExemploRedis.Stores
             return Task.FromResult(_employees.FirstOrDefault(x => x.Id == id));
         }
 
-        public Task<List<Employee>> Listar()
+        public Task<IEnumerable<Employee>> Listar()
         {
-            return Task.FromResult(_employees);
+            var lista = _employees.AsEnumerable();
+            return Task.FromResult(lista);
         }
     }
 }

@@ -3,8 +3,7 @@ using StackExchange.Redis;
 using Microsoft.Extensions.Configuration;
 using System.Net.Sockets;
 using System.Threading;
-using System.Runtime.Serialization.Formatters.Binary;
-using System.IO;
+using System.Linq;
 
 namespace ExemploRedis.Stores.Caching
 {
@@ -50,6 +49,12 @@ namespace ExemploRedis.Stores.Caching
         {
             return BasicRetry(() => Connection.GetServer(host, port));
         }
+
+        public IServer GetServer()
+        {
+            return BasicRetry(() => Connection.GetServer(GetEndPoints().First()));
+        }
+
         #region Resiliencia
 
         private long lastReconnectTicks = DateTimeOffset.MinValue.UtcTicks;
