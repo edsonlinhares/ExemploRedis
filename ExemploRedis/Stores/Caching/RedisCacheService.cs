@@ -1,14 +1,10 @@
 ﻿using System;
-using System.Linq;
 using StackExchange.Redis;
 using Microsoft.Extensions.Configuration;
 using System.Net.Sockets;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.IO;
-using Newtonsoft.Json;
-using System.Collections.Generic;
 
 namespace ExemploRedis.Stores.Caching
 {
@@ -178,18 +174,5 @@ namespace ExemploRedis.Stores.Caching
         }
 
         #endregion
-    }
-
-    public static class RedisDataBaseExtensions
-    {
-        public static async Task<List<T>> Listar<T>(this IDatabase cache, string key)
-        {
-            var items = await cache.ListRangeAsync(key);
-
-            var lista = items.Select(x => JsonConvert.DeserializeObject<T>(x));
-
-            return lista.ToList();
-        }
-
     }
 }
