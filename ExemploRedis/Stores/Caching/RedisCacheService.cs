@@ -4,6 +4,9 @@ using Microsoft.Extensions.Configuration;
 using System.Net.Sockets;
 using System.Threading;
 using System.Linq;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+using System.Collections.Generic;
 
 namespace ExemploRedis.Stores.Caching
 {
@@ -35,24 +38,69 @@ namespace ExemploRedis.Stores.Caching
             });
         }
 
-        public IDatabase GetDatabase(int db = -1)
+        private IDatabase GetDatabase(int db = -1)
         {
             return BasicRetry(() => Connection.GetDatabase(db));
         }
 
-        public System.Net.EndPoint[] GetEndPoints()
+        private System.Net.EndPoint[] GetEndPoints()
         {
             return BasicRetry(() => Connection.GetEndPoints());
         }
 
-        public IServer GetServer(string host, int port)
+        private IServer GetServer(string host, int port)
         {
             return BasicRetry(() => Connection.GetServer(host, port));
         }
 
-        public IServer GetServer()
+        private IServer GetServer()
         {
             return BasicRetry(() => Connection.GetServer(GetEndPoints().First()));
+        }
+
+        public Task Adicionar(string key, object item)
+        {
+            var ts = new Task(() =>
+            {
+                GetDatabase().StringSetAsync(key, JsonConvert.SerializeObject(item));
+            });
+
+            ts.Start();
+
+            return Task.CompletedTask;
+        }
+
+        public Task Remover(string key)
+        {
+            var ts = new Task(() =>
+            {
+                GetDatabase().KeyDelete(key);
+            });
+
+            ts.Start();
+
+            return Task.CompletedTask;
+        }
+
+        public async Task<T> Obter<T>(string key)
+        {
+            var item = await GetDatabase().StringGetAsync(key);
+            return JsonConvert.DeserializeObject<T>(item);
+        }
+
+        public async Task<IEnumerable<T>> Listar<T>(string key)
+        {
+            var lista = new List<T>();
+
+            var keys = GetServer().Keys(pattern: $"{key}*");
+
+            foreach (var _key in keys)
+            {
+                var item = await GetDatabase().StringGetAsync(_key);
+                lista.Add(JsonConvert.DeserializeObject<T>(item));
+            }
+
+            return lista;
         }
 
         #region Resiliencia
@@ -180,4 +228,5 @@ namespace ExemploRedis.Stores.Caching
 
         #endregion
     }
+
 }
