@@ -20,94 +20,91 @@ namespace ExemploRedis.Stores.Caching
             _employeeStore = employeeStore;
         }
 
-        public async Task Adicionar(Employee obj)
+        public Task Adicionar(Employee obj)
         {
-            var item = await Obter(obj.Id);
+            var ts0 = new Task(() =>
+            {
+                _redisCacheService.Adicionar(_key, obj);
+            });
 
-            if (item != null) return;
+            var ts1 = new Task(() =>
+            {
+                _employeeStore.Adicionar(obj);
+            });
 
-            await _employeeStore.Adicionar(obj);
+            ts0.Start();
+            ts1.Start();
 
-            await _redisCacheService.GetDatabase()
-                .ListRightPushAsync(_key, JsonConvert.SerializeObject(obj));
+            return Task.CompletedTask;
         }
 
-        public async Task Atualizar(Employee obj)
+        public Task Atualizar(Employee obj)
         {
-            var item = await Obter(obj.Id);
-
-            if (item is null)
+            var ts0 = new Task(() =>
             {
-                await Adicionar(obj);
-                return;
-            }
+                _redisCacheService.Adicionar(_key, obj);
+            });
 
-            await _employeeStore.Atualizar(obj);
-
-            var index = IndexOf(item);
-
-            if (index >= 0)
+            var ts1 = new Task(() =>
             {
-                await _redisCacheService.GetDatabase()
-                    .ListRemoveAsync(_key, JsonConvert.SerializeObject(item));
+                _employeeStore.Atualizar(obj);
+            });
 
-                await _redisCacheService.GetDatabase()
-                    .ListRightPushAsync(_key, JsonConvert.SerializeObject(obj));
-            }
+            ts0.Start();
+            ts1.Start();
 
+            return Task.CompletedTask;
         }
 
-        public async Task Remover(Employee obj)
+        public Task Remover(Employee obj)
         {
-            var item = await Obter(obj.Id);
-
-            await _employeeStore.Remover(obj);
-
-            var index = IndexOf(item);
-
-            if (index >= 0)
+            var ts0 = new Task(() =>
             {
-                await _redisCacheService.GetDatabase()
-                    .ListRemoveAsync(_key, JsonConvert.SerializeObject(item));
-            }
+                _redisCacheService.Remover(_key);
+            });
+
+            var ts1 = new Task(() =>
+            {
+                _employeeStore.Remover(obj);
+            });
+
+            ts0.Start();
+            ts1.Start();
+
+            return Task.CompletedTask;
         }
 
         public async Task<Employee> Obter(Guid id)
         {
-            var items = await ObterLista();
+            var item = await _redisCacheService.Obter<Employee>(_key);
 
-            return items.FirstOrDefault(x => x.Id == id);
+            if (item is null)
+            {
+                item = await _employeeStore.Obter(id);
+                if (item != null)
+                {
+                    var ts0 = new Task(() =>
+                    {
+                        _redisCacheService.Adicionar(_key, item);
+                    });
+
+                    ts0.Start();
+                }
+            }
+
+            return item;
         }
 
-        public async Task<List<Employee>> Listar()
+        public async Task<IEnumerable<Employee>> Listar()
         {
-            return await ObterLista();
-        }
+            var items = await _redisCacheService.Listar<Employee>(_key);
 
-        private async Task<List<Employee>> ObterLista()
-        {
-            var items = await _redisCacheService.GetDatabase().Listar<Employee>(_key);
-
-            if (items.Count == 0)
+            if (items.Count() == 0)
             {
                 items = await _employeeStore.Listar();
             }
 
             return items;
-        }
-
-        public int IndexOf(Employee item)
-        {
-            var total = (int)_redisCacheService.GetDatabase().ListLength(_key);
-
-            for (int i = 0; i < total; i++)
-            {
-                if (_redisCacheService.GetDatabase().ListGetByIndex(_key, i).ToString().Equals(JsonConvert.SerializeObject(item)))
-                {
-                    return i;
-                }
-            }
-            return -1;
         }
 
     }
