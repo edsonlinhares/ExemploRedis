@@ -11,6 +11,6 @@ namespace ExemploRedis.Stores
         Task Atualizar(Employee obj);
         Task Remover(Employee obj);
         Task<Employee> Obter(Guid id);
-        Task<List<Employee>> Listar();
+        Task<IEnumerable<Employee>> Listar();
     }
 }
