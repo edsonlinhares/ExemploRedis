@@ -6,9 +6,9 @@ namespace ExemploRedis.Models
     {
         protected Employee() { }
 
-        public Employee(string name, int age)
+        public Employee(Guid id, string name, int age)
         {
-            Id = Guid.NewGuid();
+            Id = id;
             Name = name;
             Age = age;
         }
@@ -16,5 +16,16 @@ namespace ExemploRedis.Models
         public Guid Id { get; private set; }
         public string Name { get; private set; }
         public int Age { get; private set; }
+    }
+
+    public class EmployeeViewModel
+    {
+        public EmployeeViewModel()
+        {
+            Id = Guid.NewGuid();
+        }
+        public Guid Id { get; set; }
+        public string Name { get; set; }
+        public int Age { get; set; }
     }
 }

@@ -11,12 +11,14 @@ namespace ExemploRedis.Stores.Caching
     {
         const string _key = "Employees";
 
-        private readonly RedisCacheService _redisCacheService;
+        TimeSpan expirationTime = TimeSpan.FromHours(4);
+
+        private readonly ICacheService _cacheService;
         private readonly IEmployeeStore _employeeStore;
 
-        public EmployeeCachingStore(RedisCacheService redisCacheService, IEmployeeStore employeeStore)
+        public EmployeeCachingStore(ICacheService cacheService, IEmployeeStore employeeStore)
         {
-            _redisCacheService = redisCacheService;
+            _cacheService = cacheService;
             _employeeStore = employeeStore;
         }
 
@@ -24,7 +26,7 @@ namespace ExemploRedis.Stores.Caching
         {
             var ts0 = new Task(() =>
             {
-                _redisCacheService.Adicionar(_key, obj);
+                _cacheService.Set<Employee>($"{_key}:{obj.Id}", obj, expirationTime);
             });
 
             var ts1 = new Task(() =>
@@ -42,7 +44,7 @@ namespace ExemploRedis.Stores.Caching
         {
             var ts0 = new Task(() =>
             {
-                _redisCacheService.Adicionar(_key, obj);
+                _cacheService.Set<Employee>($"{_key}:{obj.Id}", obj, expirationTime);
             });
 
             var ts1 = new Task(() =>
@@ -60,7 +62,7 @@ namespace ExemploRedis.Stores.Caching
         {
             var ts0 = new Task(() =>
             {
-                _redisCacheService.Remover(_key);
+                _cacheService.Clear($"{_key}:{obj.Id}");
             });
 
             var ts1 = new Task(() =>
@@ -76,7 +78,7 @@ namespace ExemploRedis.Stores.Caching
 
         public async Task<Employee> Obter(Guid id)
         {
-            var item = await _redisCacheService.Obter<Employee>(_key);
+            var item = _cacheService.Get<Employee>($"{_key}:{id}");
 
             if (item is null)
             {
@@ -85,7 +87,7 @@ namespace ExemploRedis.Stores.Caching
                 {
                     var ts0 = new Task(() =>
                     {
-                        _redisCacheService.Adicionar(_key, item);
+                        _cacheService.Set<Employee>($"{_key}:{item.Id}", item, expirationTime);
                     });
 
                     ts0.Start();
@@ -97,11 +99,21 @@ namespace ExemploRedis.Stores.Caching
 
         public async Task<IEnumerable<Employee>> Listar()
         {
-            var items = await _redisCacheService.Listar<Employee>(_key);
+            var items = _cacheService.GetAll<Employee>($"{_key}");
 
             if (items.Count() == 0)
             {
                 items = await _employeeStore.Listar();
+
+                var ts = new Task(() =>
+                {
+                    foreach (var item in items)
+                    {
+                        _cacheService.Set<Employee>($"{_key}:{item.Id}", item, expirationTime);
+                    }
+                });
+
+                ts.Start();
             }
 
             return items;

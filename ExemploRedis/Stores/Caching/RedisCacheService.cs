@@ -1,232 +1,93 @@
 ﻿using System;
-using StackExchange.Redis;
 using Microsoft.Extensions.Configuration;
-using System.Net.Sockets;
-using System.Threading;
 using System.Linq;
-using System.Threading.Tasks;
-using Newtonsoft.Json;
 using System.Collections.Generic;
+using ServiceStack;
+using ServiceStack.Redis;
 
 namespace ExemploRedis.Stores.Caching
 {
-    public class RedisCacheService
+    public interface ICacheService
     {
-        private readonly IConfiguration _configuration;
+        T Get<T>(string key) where T : class;
+        IEnumerable<T> GetAll<T>(string key) where T : class;
+        void Set<T>(string key, T value, TimeSpan time) where T : class;
+        bool IsSet(string key);
+        void Clear(string key);
+        void ClearKeysByPattern(string pattern);
+    }
+
+    public class RedisCacheService : ICacheService
+    {
+        private IConfiguration _configuration;
+        private readonly string _connectionString;
 
         public RedisCacheService(IConfiguration configuration)
         {
             _configuration = configuration;
+             _connectionString = _configuration.GetConnectionString("RedisServer");
         }
 
-        private Lazy<ConnectionMultiplexer> lazyConnection { get { return CreateConnection(); } }
-
-        public ConnectionMultiplexer Connection
+        public void Set<T>(string key, T value, TimeSpan time) where T : class
         {
-            get
+            using (IRedisClient client = new RedisClient(new Uri(_connectionString)))
             {
-                return lazyConnection.Value;
+                client.Set(key, value, time);
             }
         }
 
-        private Lazy<ConnectionMultiplexer> CreateConnection()
+        public T Get<T>(string key) where T : class
         {
-            return new Lazy<ConnectionMultiplexer>(() =>
+            using (IRedisClient client = new RedisClient(new Uri(_connectionString)))
             {
-                string cacheConnection = _configuration.GetConnectionString("RedisServer");
-                return ConnectionMultiplexer.Connect(cacheConnection);
-            });
-        }
-
-        private IDatabase GetDatabase(int db = -1)
-        {
-            return BasicRetry(() => Connection.GetDatabase(db));
-        }
-
-        private System.Net.EndPoint[] GetEndPoints()
-        {
-            return BasicRetry(() => Connection.GetEndPoints());
-        }
-
-        private IServer GetServer(string host, int port)
-        {
-            return BasicRetry(() => Connection.GetServer(host, port));
-        }
-
-        private IServer GetServer()
-        {
-            return BasicRetry(() => Connection.GetServer(GetEndPoints().First()));
-        }
-
-        public Task Adicionar(string key, object item)
-        {
-            var ts = new Task(() =>
-            {
-                GetDatabase().StringSetAsync(key, JsonConvert.SerializeObject(item));
-            });
-
-            ts.Start();
-
-            return Task.CompletedTask;
-        }
-
-        public Task Remover(string key)
-        {
-            var ts = new Task(() =>
-            {
-                GetDatabase().KeyDelete(key);
-            });
-
-            ts.Start();
-
-            return Task.CompletedTask;
-        }
-
-        public async Task<T> Obter<T>(string key)
-        {
-            var item = await GetDatabase().StringGetAsync(key);
-            return JsonConvert.DeserializeObject<T>(item);
-        }
-
-        public async Task<IEnumerable<T>> Listar<T>(string key)
-        {
-            var lista = new List<T>();
-
-            var keys = GetServer().Keys(pattern: $"{key}*");
-
-            foreach (var _key in keys)
-            {
-                var item = await GetDatabase().StringGetAsync(_key);
-                lista.Add(JsonConvert.DeserializeObject<T>(item));
-            }
-
-            return lista;
-        }
-
-        #region Resiliencia
-
-        private long lastReconnectTicks = DateTimeOffset.MinValue.UtcTicks;
-        private DateTimeOffset firstErrorTime = DateTimeOffset.MinValue;
-        private DateTimeOffset previousErrorTime = DateTimeOffset.MinValue;
-
-        private readonly object reconnectLock = new object();
-
-        // In general, let StackExchange.Redis handle most reconnects,
-        // so limit the frequency of how often ForceReconnect() will
-        // actually reconnect.
-        public TimeSpan ReconnectMinFrequency => TimeSpan.FromSeconds(60);
-
-        // If errors continue for longer than the below threshold, then the
-        // multiplexer seems to not be reconnecting, so ForceReconnect() will
-        // re-create the multiplexer.
-        public TimeSpan ReconnectErrorThreshold => TimeSpan.FromSeconds(30);
-
-        public int RetryMaxAttempts => 5;
-
-        private void CloseConnection(Lazy<ConnectionMultiplexer> oldConnection)
-        {
-            if (oldConnection == null)
-                return;
-
-            try
-            {
-                oldConnection.Value.Close();
-            }
-            catch (Exception)
-            {
-                // Example error condition: if accessing oldConnection.Value causes a connection attempt and that fails.
+                return client.Get<T>(key);
             }
         }
 
-        /// <summary>
-        /// Force a new ConnectionMultiplexer to be created.
-        /// NOTES:
-        ///     1. Users of the ConnectionMultiplexer MUST handle ObjectDisposedExceptions, which can now happen as a result of calling ForceReconnect().
-        ///     2. Don't call ForceReconnect for Timeouts, just for RedisConnectionExceptions or SocketExceptions.
-        ///     3. Call this method every time you see a connection exception. The code will:
-        ///         a. wait to reconnect for at least the "ReconnectErrorThreshold" time of repeated errors before actually reconnecting
-        ///         b. not reconnect more frequently than configured in "ReconnectMinFrequency"
-        /// </summary>
-        public void ForceReconnect()
+        public IEnumerable<T> GetAll<T>(string key) where T : class
         {
-            var utcNow = DateTimeOffset.UtcNow;
-            long previousTicks = Interlocked.Read(ref lastReconnectTicks);
-            var previousReconnectTime = new DateTimeOffset(previousTicks, TimeSpan.Zero);
-            TimeSpan elapsedSinceLastReconnect = utcNow - previousReconnectTime;
-
-            // If multiple threads call ForceReconnect at the same time, we only want to honor one of them.
-            if (elapsedSinceLastReconnect < ReconnectMinFrequency)
-                return;
-
-            lock (reconnectLock)
+            using (IRedisClient client = new RedisClient(new Uri(_connectionString)))
             {
-                utcNow = DateTimeOffset.UtcNow;
-                elapsedSinceLastReconnect = utcNow - previousReconnectTime;
+                var keys = GetKeysByPattern($"{key}*");
+                var lista = client.GetValues<T>(keys);
 
-                if (firstErrorTime == DateTimeOffset.MinValue)
-                {
-                    // We haven't seen an error since last reconnect, so set initial values.
-                    firstErrorTime = utcNow;
-                    previousErrorTime = utcNow;
-                    return;
-                }
-
-                if (elapsedSinceLastReconnect < ReconnectMinFrequency)
-                    return; // Some other thread made it through the check and the lock, so nothing to do.
-
-                TimeSpan elapsedSinceFirstError = utcNow - firstErrorTime;
-                TimeSpan elapsedSinceMostRecentError = utcNow - previousErrorTime;
-
-                bool shouldReconnect =
-                    elapsedSinceFirstError >= ReconnectErrorThreshold // Make sure we gave the multiplexer enough time to reconnect on its own if it could.
-                    && elapsedSinceMostRecentError <= ReconnectErrorThreshold; // Make sure we aren't working on stale data (e.g. if there was a gap in errors, don't reconnect yet).
-
-                // Update the previousErrorTime timestamp to be now (e.g. this reconnect request).
-                previousErrorTime = utcNow;
-
-                if (!shouldReconnect)
-                    return;
-
-                firstErrorTime = DateTimeOffset.MinValue;
-                previousErrorTime = DateTimeOffset.MinValue;
-
-                Lazy<ConnectionMultiplexer> oldConnection = lazyConnection;
-                CloseConnection(oldConnection);
-                //lazyConnection = CreateConnection();
-                Interlocked.Exchange(ref lastReconnectTicks, utcNow.UtcTicks);
+                return lista;
             }
         }
 
-        // In real applications, consider using a framework such as
-        // Polly to make it easier to customize the retry approach.
-        private T BasicRetry<T>(Func<T> func)
+        public bool IsSet(string key)
         {
-            int reconnectRetry = 0;
-            int disposedRetry = 0;
-
-            while (true)
+            using (IRedisClient client = new RedisClient(new Uri(_connectionString)))
             {
-                try
-                {
-                    return func();
-                }
-                catch (Exception ex) when (ex is RedisConnectionException || ex is SocketException)
-                {
-                    reconnectRetry++;
-                    if (reconnectRetry > RetryMaxAttempts)
-                        throw;
-                    ForceReconnect();
-                }
-                catch (ObjectDisposedException)
-                {
-                    disposedRetry++;
-                    if (disposedRetry > RetryMaxAttempts)
-                        throw;
-                }
+                return client.ContainsKey(key);
             }
         }
 
-        #endregion
+        public void Clear(string key)
+        {
+            using (IRedisClient client = new RedisClient(new Uri(_connectionString)))
+            {
+                client.Remove(key);
+            }
+        }
+
+        public void ClearKeysByPattern(string pattern)
+        {
+            var keys = GetKeysByPattern(pattern);
+            if (keys != null || keys.Count >= 0)
+            {
+                foreach (var key in keys)
+                    Clear(key);
+            }
+        }
+
+        private List<string> GetKeysByPattern(string pattern)
+        {
+            using (IRedisClient client = new RedisClient(new Uri(_connectionString)))
+            {
+                return client.GetKeysByPattern(pattern).ToList();
+            }
+        }
     }
 
 }

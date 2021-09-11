@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading.Tasks;
+using AutoMapper;
 using ExemploRedis.Models;
 using ExemploRedis.Stores;
 using Microsoft.AspNetCore.Mvc;
@@ -11,11 +12,13 @@ namespace ExemploRedis.Controllers
     [Route("/api/employee")]
     public class EmployeeController : ControllerBase
     {
+        private readonly IMapper mapper;
         private readonly ILogger<EmployeeController> _logger;
         private readonly IEmployeeStore _employeeStore;
 
-        public EmployeeController(ILogger<EmployeeController> logger, IEmployeeStore employeeStore)
+        public EmployeeController(IMapper mapper, ILogger<EmployeeController> logger, IEmployeeStore employeeStore)
         {
+            this.mapper = mapper;
             _logger = logger;
             _employeeStore = employeeStore;
         }
@@ -35,23 +38,27 @@ namespace ExemploRedis.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Post([FromBody] Employee employee)
+        public async Task<IActionResult> Post([FromBody] EmployeeViewModel employee)
         {
-            await _employeeStore.Adicionar(employee);
+            var model = mapper.Map<Employee>(employee);
+            await _employeeStore.Adicionar(model);
             return Ok(employee);
         }
 
         [HttpPut]
-        public async Task<IActionResult> Put([FromBody] Employee employee)
+        public async Task<IActionResult> Put([FromBody] EmployeeViewModel employee)
         {
-            await _employeeStore.Atualizar(employee);
+            var model = mapper.Map<Employee>(employee);
+            await _employeeStore.Atualizar(model);
             return Ok(employee);
         }
 
-        [HttpDelete]
-        public async Task<IActionResult> Delete([FromBody] Employee employee)
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> Delete(Guid id)
         {
-            await _employeeStore.Remover(employee);
+            var employee = await _employeeStore.Obter(id);
+            if (employee != null)
+                await _employeeStore.Remover(employee);
             return Ok(employee);
         }
     }

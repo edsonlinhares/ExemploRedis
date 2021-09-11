@@ -13,12 +13,14 @@ namespace ExemploRedis.Stores
 
         public EmployeeStore()
         {
-            var testOrders = new Faker<Employee>()
-                .RuleFor(o => o.Id, f => Guid.NewGuid())
-                .RuleFor(o => o.Age, f => f.Random.Int(18, 55))
-                .RuleFor(o => o.Name, f => f.Person.FullName);
-
-            _employees = testOrders.Generate(2);
+            _employees = new Faker<Employee>("pt_BR")
+                .CustomInstantiator(f => new Employee(
+                    Guid.NewGuid(),
+                    f.Person.FullName,
+                    f.Random.Int(18, 55)
+                    )
+                )
+                .Generate(20);           
         }
 
         public Task Adicionar(Employee obj)
